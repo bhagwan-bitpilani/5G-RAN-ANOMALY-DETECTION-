@@ -52,7 +52,7 @@ export default defineConfig(({ mode }) => {
             vendor: ['react', 'react-dom'],
             ui: ['@mui/material', '@emotion/react', '@emotion/styled'],
             charts: ['recharts'],
-            utils: ['lodash', 'date-fns', 'axios'],
+            router: ['react-router-dom'],
           },
         },
       },
