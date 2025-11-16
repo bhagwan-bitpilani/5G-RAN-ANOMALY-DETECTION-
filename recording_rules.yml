@@ -1,0 +1,76 @@
+groups:
+  - name: 5g-nr-recording-rules
+    rules:
+      # Recording rules for 3GPP SLA compliance calculations
+      - record: sla_compliance:downlink_throughput
+        expr: downlink_ue_throughput >= 50000000
+        labels:
+          kpi: DownlinkUEThroughput
+          compliance: 3GPP
+
+      - record: sla_compliance:prb_utilization
+        expr: downlink_prb_utilization <= 85
+        labels:
+          kpi: DownlinkPRBUtilization
+          compliance: 3GPP
+
+      - record: sla_compliance:session_success_rate
+        expr: data_session_success_rate >= 98
+        labels:
+          kpi: DataSessionSetupSuccessRate
+          compliance: 3GPP
+
+      - record: sla_compliance:endc_success_rate
+        expr: endc_add_setup_success_rate >= 95
+        labels:
+          kpi: ENDCADDSetupSuccessRate
+          compliance: 3GPP
+
+      - record: sla_compliance:inter_sgnb_success_rate
+        expr: inter_sgnb_change_success_rate >= 90
+        labels:
+          kpi: InterSgNBChangeSuccessRate
+          compliance: 3GPP
+
+      - record: sla_compliance:active_endc_users
+        expr: maximum_active_endc_user <= 200
+        labels:
+          kpi: MaximumActiveENDCUser
+          compliance: 3GPP
+
+      - record: sla_compliance:downlink_latency
+        expr: downlink_latency <= 20
+        labels:
+          kpi: DownlinkLatency
+          compliance: 3GPP
+
+      # Overall SLA Health Score (percentage of KPIs meeting SLA)
+      - record: sla_health_score
+        expr: |
+          avg(
+            (downlink_ue_throughput >= 50000000) * 100 or vector(0) +
+            (downlink_prb_utilization <= 85) * 100 or vector(0) +
+            (data_session_success_rate >= 98) * 100 or vector(0) +
+            (endc_add_setup_success_rate >= 95) * 100 or vector(0) +
+            (inter_sgnb_change_success_rate >= 90) * 100 or vector(0) +
+            (maximum_active_endc_user <= 200) * 100 or vector(0) +
+            (downlink_latency <= 20) * 100 or vector(0)
+          )
+        labels:
+          compliance: 3GPP
+
+      # Additional recording rules for trend analysis
+      - record: kpi_trend:throughput_5m_avg
+        expr: avg_over_time(downlink_ue_throughput[5m])
+        labels:
+          kpi: DownlinkUEThroughput
+
+      - record: kpi_trend:latency_5m_avg
+        expr: avg_over_time(downlink_latency[5m])
+        labels:
+          kpi: DownlinkLatency
+
+      - record: kpi_trend:prb_utilization_5m_avg
+        expr: avg_over_time(downlink_prb_utilization[5m])
+        labels:
+          kpi: DownlinkPRBUtilization

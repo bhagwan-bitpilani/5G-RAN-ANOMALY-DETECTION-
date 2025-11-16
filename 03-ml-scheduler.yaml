@@ -1,0 +1,597 @@
+---
+# Enhanced ML Scheduler Deployment for 5G NR KPI Anomaly Detection
+# Includes AI-driven scheduling, model training, and anomaly detection with production enhancements
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-scheduler
+  namespace: 5g-anomaly-detection
+  labels:
+    app: ml-scheduler
+    version: "2.1.0"  # Updated version
+    component: ml-processing
+    part-of: 5g-anomaly-detection
+    environment: production
+  annotations:
+    description: "AI-powered ML Scheduler for 5G KPI anomaly detection with SLA integration"
+    app.kubernetes.io/version: "2.1.0"
+    app.kubernetes.io/component: ml-scheduler
+    app.kubernetes.io/part-of: 5g-anomaly-detection
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+    checksum/config: "${CONFIG_CHECKSUM}"  # For config change detection
+spec:
+  replicas: 2  # Initial replicas, scaled by HPA and SLA scheduler
+  revisionHistoryLimit: 5
+  progressDeadlineSeconds: 600
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: ml-scheduler
+      component: ml-processing
+  template:
+    metadata:
+      labels:
+        app: ml-scheduler
+        version: "2.1.0"
+        component: ml-processing
+      annotations:
+        consul.hashicorp.com/service-name: "ml-scheduler"
+        consul.hashicorp.com/service-port: "8000"
+        # Service mesh annotations
+        # linkerd.io/inject: enabled
+        # Kubernetes annotations
+        kubectl.kubernetes.io/default-container: ml-scheduler
+        kubectl.kubernetes.io/default-logs-container: ml-scheduler
+        # Prometheus custom metrics
+        prometheus.io/custom-metrics: "true"
+    spec:
+      serviceAccountName: ml-scheduler-sa
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # Priority class for ML workloads
+      priorityClassName: system-cluster-critical
+      containers:
+        - name: ml-scheduler
+          image: your-registry/5g-anomaly/ml-scheduler:v2.1.0  # Replace with your registry
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: KUBERNETES_SERVICE_HOST
+              value: "kubernetes.default.svc"
+            - name: PROMETHEUS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: PROMETHEUS_URL
+            - name: APP_API_URL
+              value: "http://app-api:8000"
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: REDIS_URL
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ml-scheduler-secrets
+                  key: database-url
+            - name: ML_MODEL_PATH
+              value: "/models"
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: MODEL_RETRAIN_INTERVAL
+              value: "3600"
+            - name: BATCH_PROCESSING_SIZE
+              value: "1000"
+            # SLA Scheduler integration
+            - name: SLA_SCHEDULER_ENABLED
+              value: "true"
+            - name: SCHEDULER_INTERVAL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: SCHEDULER_INTERVAL
+            # Kubernetes-specific
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: K8S_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          envFrom:
+            - configMapRef:
+                name: ml-scheduler-config
+          resources:
+            requests:
+              memory: "1Gi"  # Increased for ML workloads
+              cpu: "500m"
+              ephemeral-storage: "2Gi"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+              ephemeral-storage: "10Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTP
+              httpHeaders:
+                - name: X-Health-Check
+                  value: liveness
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+              scheme: HTTP
+              httpHeaders:
+                - name: X-Health-Check
+                  value: readiness
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+          volumeMounts:
+            - name: ml-models
+              mountPath: /models
+              readOnly: false
+            - name: config-volume
+              mountPath: /app/config
+              readOnly: true
+            - name: tmp-volume
+              mountPath: /tmp
+            - name: logs-volume
+              mountPath: /app/logs
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            capabilities:
+              drop:
+                - ALL
+          lifecycle:
+            preStop:
+              exec:
+                command: 
+                  - sh
+                  - -c
+                  - "sleep 30 && python -c 'import ml_scheduler; ml_scheduler.graceful_shutdown()'"
+            postStart:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - "python -c 'import ml_scheduler; ml_scheduler.post_start_hook()'"
+      # Init container for model loading
+      initContainers:
+        - name: model-init
+          image: your-registry/5g-anomaly/ml-scheduler:v2.1.0
+          command: ["python", "/app/scripts/load_models.py"]
+          envFrom:
+            - configMapRef:
+                name: ml-scheduler-config
+          volumeMounts:
+            - name: ml-models
+              mountPath: /models
+              readOnly: false
+            - name: config-volume
+              mountPath: /app/config
+              readOnly: true
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+      volumes:
+        - name: ml-models
+          persistentVolumeClaim:
+            claimName: ml-models-pvc
+        - name: config-volume
+          configMap:
+            name: ml-scheduler-config
+            defaultMode: 0644
+        - name: tmp-volume
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi
+        - name: logs-volume
+          emptyDir: {}
+      # Enhanced affinity and tolerations
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - ml-scheduler
+                topologyKey: kubernetes.io/hostname
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - ml-scheduler
+              topologyKey: kubernetes.io/zone
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: node-type
+                    operator: In
+                    values:
+                      - ml-optimized
+                      - gpu-enabled
+                  - key: instance-type
+                    operator: In
+                    values:
+                      - p3.large
+                      - g4dn.large
+      tolerations:
+        - key: "ml-workload"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+        - key: "nvidia.com/gpu"
+          operator: "Exists"
+          effect: "NoSchedule"
+      # Topology spread for HA
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: ml-scheduler
+---
+# Enhanced ML Scheduler Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-scheduler
+  namespace: 5g-anomaly-detection
+  labels:
+    app: ml-scheduler
+    component: ml-processing
+    service: ml-scheduler
+    version: "2.1.0"
+  annotations:
+    description: "Service for ML Scheduler API and metrics"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+    service.beta.kubernetes.io/aws-load-balancer-type: "internal"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app: ml-scheduler
+    component: ml-processing
+  sessionAffinity: None
+---
+# Enhanced Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ml-scheduler-sa
+  namespace: 5g-anomaly-detection
+  labels:
+    app: ml-scheduler
+    component: service-account
+  annotations:
+    description: "Service account for ML Scheduler with scaling and monitoring permissions"
+automountServiceAccountToken: true
+---
+# Enhanced Cluster Role for ML Scheduler (with scaling permissions)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ml-scheduler-role
+  labels:
+    rbac: ml-scheduler
+    app: ml-scheduler
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "services", "endpoints", "events", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec", "pods/log"]
+    verbs: ["create", "get"]
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "deployments/scale"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch"]
+---
+# Enhanced Cluster Role Binding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ml-scheduler-binding
+  labels:
+    rbac: ml-scheduler
+    app: ml-scheduler
+subjects:
+  - kind: ServiceAccount
+    name: ml-scheduler-sa
+    namespace: 5g-anomaly-detection
+roleRef:
+  kind: ClusterRole
+  name: ml-scheduler-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# Enhanced ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ml-scheduler-config
+  namespace: 5g-anomaly-detection
+  labels:
+    app: ml-scheduler
+    component: config
+data:
+  config.yaml: |
+    ml_scheduler:
+      retrain_interval: 3600
+      batch_size: 1000
+      model_timeout: 300
+      max_retries: 3
+      backoff_factor: 2
+      enable_gpu: true
+      model_versions_to_keep: 5
+      
+    kpi_processing:
+      window_size: 100
+      anomaly_threshold: 0.7
+      drift_detection_enabled: true
+      feature_store_enabled: true
+      real_time_processing: true
+      
+    kubernetes:
+      namespace: 5g-anomaly-detection
+      node_selector:
+        node-type: ml-optimized
+      gpu_requests: 1
+      
+    monitoring:
+      prometheus_enabled: true
+      metrics_port: 9090
+      health_check_interval: 30
+      custom_metrics_enabled: true
+      
+    sla_integration:
+      enabled: true
+      prometheus_url: "http://prometheus:9090"
+      scaling_decision_weight: 0.8
+      
+    logging:
+      level: "INFO"
+      format: "json"
+      handlers: ["console", "file"]
+  # Additional config
+  model_config.json: |
+    {
+      "models": {
+        "anomaly_detector": {
+          "type": "isolation_forest",
+          "contamination": 0.1,
+          "n_estimators": 100,
+          "max_features": 1.0
+        },
+        "time_series_predictor": {
+          "type": "prophet",
+          "seasonality_mode": "multiplicative"
+        }
+      },
+      "feature_engineering": {
+        "rolling_windows": [10, 30, 60],
+        "lag_features": [1, 2, 3],
+        "statistical_features": ["mean", "std", "min", "max"]
+      }
+    }
+---
+# Enhanced Secrets
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ml-scheduler-secrets
+  namespace: 5g-anomaly-detection
+  labels:
+    app: ml-scheduler
+    component: secrets
+type: Opaque
+data:
+  database-url: "cG9zdGdyZXNxbDovL3VzZXI6cGFzc0BkYjoxMjM0L21sX3NjaGVkdWxlcg=="  # CHANGE IN PRODUCTION
+  api-key: "YmFzZTY0LWVuY29kZWQtYXBpLWtleQ=="
+  model-encryption-key: "ZW5jcnlwdGlvbi1rZXktZm9yLW1vZGVscy0xMjM="
+  # Additional secrets
+  s3-access-key: ""  # For model storage in S3
+  s3-secret-key: ""
+  s3-bucket: "NWctYW5vbWFseS1tb2RlbHM="  # Base64: 5g-anomaly-models
+---
+# Enhanced PVC for ML Models
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ml-models-pvc
+  namespace: 5g-anomaly-detection
+  labels:
+    app: ml-scheduler
+    component: storage
+    storage: models
+spec:
+  accessModes:
+    - ReadWriteMany  # For shared access across pods
+  resources:
+    requests:
+      storage: 50Gi  # Increased for model versions
+  storageClassName: fast-ssd
+---
+# Enhanced CronJob for Model Cleanup and Retraining
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ml-model-maintenance
+  namespace: 5g-anomaly-detection
+  labels:
+    app: ml-scheduler
+    component: maintenance
+spec:
+  schedule: "0 3 * * *"  # Daily at 3 AM
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  successfulJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app: ml-scheduler
+        job: model-maintenance
+    spec:
+      template:
+        spec:
+          serviceAccountName: ml-scheduler-sa
+          containers:
+          - name: maintenance
+            image: your-registry/5g-anomaly/ml-scheduler:v2.1.0
+            command: ["python", "/app/scripts/model_maintenance.py"]
+            env:
+              - name: MODEL_PATH
+                value: "/models"
+              - name: RETENTION_DAYS
+                value: "30"
+              - name: RETRAIN_ENABLED
+                value: "true"
+            envFrom:
+              - configMapRef:
+                  name: ml-scheduler-config
+              - secretRef:
+                  name: ml-scheduler-secrets
+            resources:
+              requests:
+                memory: "1Gi"
+                cpu: "500m"
+              limits:
+                memory: "2Gi"
+                cpu: "1000m"
+            volumeMounts:
+              - name: ml-models
+                mountPath: /models
+              - name: config-volume
+                mountPath: /app/config
+                readOnly: true
+          volumes:
+            - name: ml-models
+              persistentVolumeClaim:
+                claimName: ml-models-pvc
+            - name: config-volume
+              configMap:
+                name: ml-scheduler-config
+          restartPolicy: OnFailure
+---
+# Enhanced HPA with Custom Metrics
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ml-scheduler-hpa
+  namespace: 5g-anomaly-detection
+  labels:
+    app: ml-scheduler
+    component: autoscaling
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ml-scheduler
+  minReplicas: 2
+  maxReplicas: 15  # Increased for ML workloads
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+    - type: Pods

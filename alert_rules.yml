@@ -1,0 +1,71 @@
+groups:
+  - name: 5g-kpi-alerts
+    rules:
+      - alert: HighKPILatency
+        expr: kpi_downlink_latency > 20
+        for: 2m
+        labels:
+          severity: warning
+          service: 5g-backend
+        annotations:
+          summary: "High Downlink Latency detected"
+          description: "Downlink latency is {{ $value }}ms, exceeding 3GPP threshold of 20ms for cell {{ $labels.cell_id }}"
+          
+      - alert: LowThroughput
+        expr: kpi_downlink_ue_throughput < 50000000
+        for: 2m
+        labels:
+          severity: critical
+          service: 5g-backend
+        annotations:
+          summary: "Low UE Throughput detected"
+          description: "UE throughput is {{ $value }}bps, below 3GPP minimum of 50Mbps for cell {{ $labels.cell_id }}"
+          
+      - alert: HighPRBUtilization
+        expr: kpi_downlink_prb_utilization > 85
+        for: 3m
+        labels:
+          severity: warning
+          service: 5g-backend
+        annotations:
+          summary: "High PRB Utilization detected"
+          description: "PRB utilization is {{ $value }}%, exceeding 3GPP threshold of 85% for cell {{ $labels.cell_id }}"
+          
+      - alert: LowSessionSuccessRate
+        expr: kpi_data_session_setup_success_rate < 98
+        for: 2m
+        labels:
+          severity: critical
+          service: 5g-backend
+        annotations:
+          summary: "Low Session Setup Success Rate"
+          description: "Session success rate is {{ $value }}%, below 3GPP minimum of 98% for cell {{ $labels.cell_id }}"
+
+  - name: system-alerts
+    rules:
+      - alert: NodeExporterDown
+        expr: up{job="node-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Node Exporter is down"
+          description: "Node Exporter has been down for more than 1 minute"
+          
+      - alert: BackendDown
+        expr: up{job="5g-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "5G Backend is down"
+          description: "5G KPI Backend service has been down for more than 1 minute"
+          
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is at {{ $value }}%"

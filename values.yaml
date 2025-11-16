@@ -1,0 +1,372 @@
+# Default values for 5g-anomaly-detection
+# This is a YAML file. You can override values in helm install/upgrade with -f flag.
+
+global:
+  imageRegistry: "registry.example.com"
+  imagePullSecret: "registry-secret"
+  # Application version
+  appVersion: "2.0.0"
+  # Environment (production, staging, development)
+  environment: "production"
+  # Domain for ingress
+  domain: "5g-kpi.example.com"
+
+# Backend API service configuration
+backend:
+  replicaCount: 3
+  image: "5g-anomaly-backend"
+  tag: "latest"
+  imagePullPolicy: "IfNotPresent"
+  
+  # Service configuration
+  service:
+    type: "ClusterIP"
+    port: 8000
+    targetPort: 8000
+    # For NodePort or LoadBalancer
+    nodePort: null
+    loadBalancerIP: ""
+  
+  # Resource configuration
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+  
+  # Autoscaling configuration
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+  
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  
+  # Environment variables
+  env:
+    - name: DATABASE_URL
+      value: "postgresql://postgres:password@postgresql:5432/nr_kpi"
+    - name: REDIS_URL
+      value: "redis://redis:6379"
+    - name: PYTHONUNBUFFERED
+      value: "1"
+    - name: LOG_LEVEL
+      value: "INFO"
+    - name: PROMETHEUS_MULTIPROC_DIR
+      value: "/tmp"
+  
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+  
+  # Pod security context
+  podSecurityContext:
+    fsGroup: 1000
+    runAsNonRoot: true
+    runAsUser: 1000
+
+# Frontend application configuration
+frontend:
+  enabled: true
+  replicaCount: 2
+  image: "5g-anomaly-frontend"
+  tag: "latest"
+  imagePullPolicy: "IfNotPresent"
+  
+  # Service configuration
+  service:
+    type: "ClusterIP"
+    port: 80
+    targetPort: 80
+  
+  # Resource configuration
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  
+  # Autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+  
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 80
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /
+      port: 80
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+
+# PostgreSQL database configuration
+postgresql:
+  enabled: true
+  # Use external PostgreSQL if needed
+  # external: false
+  # externalHost: ""
+  # externalPort: 5432
+  
+  # Authentication
+  auth:
+    username: "postgres"
+    password: "password"
+    database: "nr_kpi"
+    postgresPassword: "password"
+  
+  # Persistence
+  persistence:
+    enabled: true
+    size: "20Gi"
+    storageClass: ""
+    accessMode: ReadWriteOnce
+  
+  # Resource configuration
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+  
+  # Backup configuration
+  backup:
+    enabled: false
+    schedule: "0 2 * * *"  # Daily at 2 AM
+    retention: 7
+
+# Redis cache configuration
+redis:
+  enabled: true
+  architecture: "standalone"
+  
+  # Authentication
+  auth:
+    enabled: false
+    password: ""
+  
+  # Persistence
+  persistence:
+    enabled: true
+    size: "5Gi"
+    storageClass: ""
+  
+  # Resource configuration
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+# Monitoring stack configuration
+prometheus:
+  enabled: true
+  retention: "15d"
+  retentionSize: "30GB"
+  
+  # Resource configuration
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+  
+  # Service configuration
+  service:
+    type: "ClusterIP"
+    port: 9090
+  
+  # Alertmanager configuration
+  alertmanager:
+    enabled: true
+    config:
+      global:
+        smtp_smarthost: 'smtp:587'
+        smtp_from: 'alertmanager@5g-kpi.local'
+      route:
+        group_by: ['alertname']
+        group_wait: 10s
+        group_interval: 10s
+        repeat_interval: 1h
+        receiver: 'null'
+      receivers:
+        - name: 'null'
+
+# Grafana dashboard configuration
+grafana:
+  enabled: true
+  adminPassword: "admin"
+  
+  # Persistence
+  persistence:
+    enabled: true
+    size: "10Gi"
+    storageClass: ""
+  
+  # Resource configuration
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  
+  # Dashboards
+  dashboards:
+    enabled: true
+    label: "5g-kpi-dashboard"
+  
+  # Datasources
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://prometheus-server:9090
+          access: proxy
+          isDefault: true
+
+# Node exporter for system metrics
+nodeExporter:
+  enabled: true
+
+# cAdvisor for container metrics
+cadvisor:
+  enabled: true
+
+# Ingress configuration for external access
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  
+  hosts:
+    - host: "5g-kpi.example.com"
+      paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: frontend
+              port:
+                number: 80
+        - path: /api
+          pathType: Prefix
+          backend:
+            service:
+              name: backend
+              port:
+                number: 8000
+        - path: /grafana
+          pathType: Prefix
+          backend:
+            service:
+              name: grafana
+              port:
+                number: 3000
+        - path: /prometheus
+          pathType: Prefix
+          backend:
+            service:
+              name: prometheus-server
+              port:
+                number: 9090
+  
+  tls:
+    - secretName: "5g-kpi-tls"
+      hosts:
+        - "5g-kpi.example.com"
+
+# Network policies for security
+networkPolicy:
+  enabled: true
+  # Allow traffic only between required components
+
+# Pod disruption budget for high availability
+pdb:
+  backend:
+    enabled: true
+    minAvailable: 1
+  frontend:
+    enabled: true
+    minAvailable: 1
+
+# Service monitor for Prometheus operator
+serviceMonitor:
+  enabled: false
+  # If using Prometheus Operator, set to true
+
+# Additional configuration for 5G-specific settings
+5gConfig:
+  # KPI collection interval in seconds
+  kpiInterval: 15
+  # Anomaly detection sensitivity (0.1 - 1.0)
+  anomalySensitivity: 0.7
+  # Data retention days
+  dataRetentionDays: 30
+  # Maximum concurrent users
+  maxConcurrentUsers: 1000
+
+# Backup and restore configuration
+backup:
+  enabled: false
+  schedule: "0 3 * * *"  # Daily at 3 AM
+  retention: 7
+  s3:
+    bucket: "5g-kpi-backups"
+    endpoint: ""
+    region: "us-east-1"
+
+# Cert-manager for TLS certificates (if using)
+certManager:
+  enabled: false
+  issuer:
+    email: "admin@example.com"
+    server: "https://acme-v02.api.letsencrypt.org/directory"

@@ -1,0 +1,24 @@
+apiVersion: v2
+name: 5g-anomaly-detection
+description: A Helm chart for 5G NR KPI Anomaly Detection System
+type: application
+version: 2.0.0
+appVersion: "2.0.0"
+
+dependencies:
+  - name: postgresql
+    version: 12.1.0
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: redis
+    version: 17.3.0
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled
+  - name: prometheus
+    version: 15.0.0
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: prometheus.enabled
+  - name: grafana
+    version: 6.50.0
+    repository: https://grafana.github.io/helm-charts
+    condition: grafana.enabled

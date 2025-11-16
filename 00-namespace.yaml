@@ -1,0 +1,637 @@
+---
+# Kubernetes Namespace for 5G Anomaly Detection System
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: 5g-anomaly-detection
+  labels:
+    name: 5g-anomaly-detection
+    app: 5g-anomaly-detection
+    component: monitoring
+    environment: production
+    version: "2.1.0"  # Updated version for enhancements
+  annotations:
+    description: "Namespace for 5G NR KPI Anomaly Detection System with SLA-driven scaling"
+    owner: "5g-monitoring-team"
+    support-group: "network-operations"
+    # Prometheus scraping annotations
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+---
+# Configuration for application settings (Enhanced with SLA scheduler config)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: configuration
+data:
+  # Database Configuration
+  DATABASE_URL: "postgresql://postgres:password@postgresql:5432/nr_kpi"
+  REDIS_URL: "redis://redis:6379"
+  
+  # Message Broker Configuration
+  KAFKA_BROKERS: "kafka:9092"
+  
+  # Model Configuration
+  MODEL_PATH: "/app/models/anomaly_detector.pkl"
+  
+  # Application Settings
+  LOG_LEVEL: "INFO"
+  PYTHONUNBUFFERED: "1"
+  PROMETHEUS_MULTIPROC_DIR: "/tmp"
+  
+  # 3GPP KPI Configuration
+  KPI_COLLECTION_INTERVAL: "15"
+  ANOMALY_DETECTION_SENSITIVITY: "0.7"
+  DATA_RETENTION_DAYS: "30"
+  
+  # Feature Flags
+  ENABLE_ML_ANOMALY_DETECTION: "true"
+  ENABLE_REALTIME_ALERTS: "true"
+  ENABLE_DATA_ARCHIVING: "false"
+  
+  # CORS Settings
+  CORS_ORIGINS: "http://localhost:3000,http://frontend:3000"
+  
+  # SLA Scheduler Configuration (New)
+  PROMETHEUS_URL: "http://prometheus:9090"
+  KUBERNETES_NAMESPACE: "5g-anomaly-detection"
+  SCHEDULER_INTERVAL: "60"
+  MAX_REPLICAS: "10"
+  MIN_REPLICAS: "1"
+  SLA_RESPONSE_TIME_MS: "100"
+  SLA_THROUGHPUT_PERCENT: "95"
+  SLA_AVAILABILITY_PERCENT: "99.9"
+  SLA_ERROR_RATE_PERCENT: "1"
+---
+# Secret for sensitive configuration (Enhanced with more secrets)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secrets
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: secrets
+type: Opaque
+data:
+  # Base64 encoded secrets
+  secret-key: eW91ci1zZWNyZXQta2V5LWNoYW5nZS1pbi1wcm9kdWN0aW9uCg==  # echo -n "your-secret-key-change-in-production" | base64
+  jwt-secret: eW91ci1qd3Qtc2VjcmV0LWNoYW5nZS1pbi1wcm9kdWN0aW9uCg==  # echo -n "your-jwt-secret-change-in-production" | base64
+  postgres-password: cGFzc3dvcmQ=  # echo -n "password" | base64
+  redis-password: ""  # Empty if no password
+  kafka-password: ""  # For Kafka if secured
+---
+# Resource Quotas for namespace (Enhanced with more resources)
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: 5g-resource-quota
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: quota
+spec:
+  hard:
+    requests.cpu: "8"  # Increased for SLA scheduler
+    requests.memory: 16Gi
+    limits.cpu: "16"
+    limits.memory: 32Gi
+    requests.storage: 200Gi
+    pods: "50"  # Increased for scaling
+    services: "20"
+    configmaps: "30"
+    secrets: "30"
+    persistentvolumeclaims: "20"
+    deployments.apps: "15"
+---
+# Limit Range for default resource limits (Enhanced)
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: 5g-limit-range
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: limits
+spec:
+  limits:
+  - default:
+      cpu: "1"  # Increased default
+      memory: "1Gi"
+    defaultRequest:
+      cpu: "200m"
+      memory: "256Mi"
+    type: Container
+  - max:
+      cpu: "4"  # Increased max
+      memory: "8Gi"
+    min:
+      cpu: "100m"
+      memory: "128Mi"
+    type: Container
+---
+# Network Policy for namespace isolation (Enhanced with external access)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: 5g-network-policy
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: network
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: 5g-anomaly-detection
+    - podSelector: {}
+    # Allow external ingress for frontend/API
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 8000  # Backend API
+    - protocol: TCP
+      port: 3000  # Frontend
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: 5g-anomaly-detection
+    - podSelector: {}
+  - to:
+    - ipBlock:
+        cidr: 10.0.0.0/8
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+  # Allow egress to external services (e.g., NTP, external APIs)
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 443
+---
+# Service Account for application pods (Enhanced)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: 5g-service-account
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: service-account
+automountServiceAccountToken: true  # Enable for scaling permissions
+---
+# Role for namespace-level permissions (Enhanced for scaling)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: 5g-pod-scaler
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: rbac
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "deployments/scale"]
+  verbs: ["get", "list", "watch", "update", "patch"]  # Added for scaling
+---
+# Role Binding (Enhanced)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: 5g-pod-scaler-binding
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: 5g-pod-scaler
+subjects:
+- kind: ServiceAccount
+  name: 5g-service-account
+  namespace: 5g-anomaly-detection
+---
+# Persistent Volume Claim for PostgreSQL
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: standard  # Adjust based on your cluster
+---
+# PostgreSQL Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: 5g-anomaly-detection
+      component: database
+  template:
+    metadata:
+      labels:
+        app: 5g-anomaly-detection
+        component: database
+    spec:
+      serviceAccountName: 5g-service-account
+      containers:
+      - name: postgresql
+        image: timescale/timescaledb:2.10.0-pg14
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_DB
+          value: "nr_kpi"
+        - name: POSTGRES_USER
+          value: "postgres"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: postgres-password
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: database
+spec:
+  selector:
+    app: 5g-anomaly-detection
+    component: database
+  ports:
+  - port: 5432
+    targetPort: 5432
+---
+# Redis Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: 5g-anomaly-detection
+      component: cache
+  template:
+    metadata:
+      labels:
+        app: 5g-anomaly-detection
+        component: cache
+    spec:
+      serviceAccountName: 5g-service-account
+      containers:
+      - name: redis
+        image: redis:7.2-alpine
+        ports:
+        - containerPort: 6379
+        command: ["redis-server", "--appendonly", "yes"]
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+---
+# Redis Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: cache
+spec:
+  selector:
+    app: 5g-anomaly-detection
+    component: cache
+  ports:
+  - port: 6379
+    targetPort: 6379
+---
+# Backend API Deployment (Enhanced with SLA integration)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-api
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: backend
+spec:
+  replicas: 2  # Initial replicas, will be scaled by SLA scheduler
+  selector:
+    matchLabels:
+      app: 5g-anomaly-detection
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: 5g-anomaly-detection
+        component: backend
+    spec:
+      serviceAccountName: 5g-service-account
+      containers:
+      - name: backend
+        image: your-registry/5g-backend:v2.1.0  # Replace with your image
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - configMapRef:
+            name: app-config
+        - secretRef:
+            name: app-secrets
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: postgres-password  # Construct full URL in code
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+---
+# Backend API Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-api
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: backend
+spec:
+  selector:
+    app: 5g-anomaly-detection
+    component: backend
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: ClusterIP
+---
+# SLA Scheduler Deployment (New)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sla-scheduler
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: 5g-anomaly-detection
+      component: scheduler
+  template:
+    metadata:
+      labels:
+        app: 5g-anomaly-detection
+        component: scheduler
+    spec:
+      serviceAccountName: 5g-service-account
+      containers:
+      - name: sla-scheduler
+        image: your-registry/5g-sla-scheduler:v1.1.0  # Replace with your image
+        envFrom:
+        - configMapRef:
+            name: app-config
+        command: ["python", "sla_scheduler.py"]
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+---
+# Frontend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: 5g-anomaly-detection
+      component: frontend
+  template:
+    metadata:
+      labels:
+        app: 5g-anomaly-detection
+        component: frontend
+    spec:
+      serviceAccountName: 5g-service-account
+      containers:
+      - name: frontend
+        image: your-registry/5g-frontend:v2.1.0  # Replace with your image
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+---
+# Frontend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: frontend
+spec:
+  selector:
+    app: 5g-anomaly-detection
+    component: frontend
+  ports:
+  - port: 80
+    targetPort: 80
+  type: LoadBalancer  # Or use Ingress for external access
+---
+# Ingress for External Access
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: 5g-ingress
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: your-domain.com  # Replace with your domain
+    http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: backend-api
+            port:
+              number: 8000
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 80
+---
+# Horizontal Pod Autoscaler for Backend (Optional, complements SLA scheduler)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: backend-hpa
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: autoscaling
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: backend-api
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+---
+# Prometheus Deployment (Simplified, assuming external or separate chart)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: 5g-anomaly-detection
+  labels:
+    app: 5g-anomaly-detection
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: 5g-anomaly-detection
+      component: monitoring
+  template:
+    metadata:
+      labels:
+        app: 5g-anomaly-detection
+        component: monitoring
+    spec:
+      serviceAccountName: 5g-service-account
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.45.0
+        ports:
+        - containerPort: 9090
+        volumeMounts:
+        - name: config
+          mountPath: /etc/prometheus
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"

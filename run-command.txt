@@ -1,0 +1,62 @@
+# Make all scripts executable
+chmod +x *.sh
+
+# 1. Clean everything
+./rebuild-app.sh
+
+# 2. Verify structure
+./verify-structure.sh
+
+# 3. Rebuild backend locally
+./rebuild-backend.sh
+
+# 4. Rebuild frontend locally  
+./rebuild-frontend.sh
+
+# 5. Final Docker rebuild
+./final-rebuild.sh
+
+# 6. Health check
+./health-check.sh
+
+
+
+sudo systemctl restart docker
+sudo docker rm -f $(docker ps -aq)
+
+If permission denied continues:
+
+sudo killall -9 dockerd containerd containerd-shim
+sudo systemctl start docker
+sudo docker rm -f $(docker ps -aq)
+
+If still issue persists:
+
+sudo systemctl stop docker.socket
+sudo systemctl stop docker
+sudo rm -rf /var/lib/docker/containers/*
+sudo systemctl start docker
+
+
+Ensure Docker service starts automatically on boot
+sudo systemctl enable docker
+sudo systemctl enable docker.service
+sudo systemctl enable docker.socket
+sudo reboot
+systemctl status docker
+sudo systemctl daemon-reload
+sudo systemctl restart docker
+
+Remove corrupted Docker socket (permanent fix for stuck socket)
+ls -l /var/run/docker.sock
+sudo chmod 666 /var/run/docker.sock
+sudo usermod -aG docker $USER
+newgrp docker
+docker ps
+
+Reset Docker folders if filesystem corruption exists
+sudo systemctl stop docker
+sudo systemctl stop docker.socket
+sudo rm -rf /var/lib/docker
+sudo rm -rf /var/lib/containerd
+sudo systemctl start docker
